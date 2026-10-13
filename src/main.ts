@@ -49,8 +49,8 @@ function area(w: number, h: number): number {
     return w * h;
 }
 
-function isFinished(status: JobStatus)  {
-    console.log("status =", status); // true
+function isFinished(status: JobStatus): boolean {
+    // console.log("status =", status);
     return status === "done" || status === "failed";
 }
 
@@ -84,11 +84,14 @@ function parseWidth(input: string): Result{
     const val = Number(input); // This line converts the input string to a number. Gives NaN if the input is not a valid number.
     if(input.trim() === ""){
         return {ok: false, error: "Empty input"};
-    }else if(!Number.isInteger(val)){
+    }
+    if(!Number.isInteger(val)){
         return {ok: false, error: "Not an integer"};
-    }else if(val <= 0){
+    }
+    if(val <= 0){
         return {ok: false, error: "Is not a positive number"};
-    }else if(val > 20000){
+    }
+    if(val > 20000){
         return {ok: false, error: "Number is too large"};
     }
     return { ok: true, value: val};
