@@ -15,7 +15,7 @@ const images: ImageInfo[] = [
     { id: "4", name: "image4.jpeg", width: 1280, height: 960 },
 ];
 
-const jsonErrorNotFound = JSON.stringify({ error: "Not found" });
+const jsonErrorNotFound = JSON.stringify({ message: "", error: "Not found", statusCode: 404 });
 const jsonErrorNotAllowed = JSON.stringify( { error: "Method not allowed" });
 const jsonErrorNotSupported = JSON.stringify( { error: "Not supported" });
 const jsonErrorNoUrl = JSON.stringify( { error: "No URL provided" });
@@ -38,9 +38,6 @@ const server = createServer((req, res) => {
     }
 
     const url = new URL(mUrl, "http://localhost");
-    // url.pathname;
-    // console.log("URL:", url);
-    // console.log("URL_pahtname:", url.pathname);
 
     if(url.pathname==="/images") {
         res.end(JSON.stringify(images));
