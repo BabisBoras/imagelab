@@ -1,10 +1,23 @@
 import { sql } from "drizzle-orm";
 import { pgTable, uuid, text, integer, timestamp, check } from "drizzle-orm/pg-core";
 
+
+
+export const users = pgTable(
+    "users",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        email: text("email").notNull().unique(),
+        password_hash: text("password_hash").notNull(),
+        createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+    }
+);
+
 export const images = pgTable(
     "images",
     {
         id: uuid("id").primaryKey().defaultRandom(),
+        ownerId: uuid("owner_id").notNull().references( () => users.id),
         name: text("name").notNull(),
         width: integer("width").notNull(),
         height: integer("height").notNull(),
@@ -16,3 +29,4 @@ export const images = pgTable(
         check("images_name_length", sql`length(${t.name}) BETWEEN 1 AND 255`),
         ],
 );
+
