@@ -1,5 +1,9 @@
 import { scrypt, randomBytes, timingSafeEqual } from "node:crypto";
 
+const dummyPassword = "AnteNaSeDwTwraPwsThaToVreisAyto13243546!#@$%|^";
+const dummyPasswordHashStored = await hashPassword(dummyPassword);
+
+
 function scryptAsync(password: string, salt: Buffer) : Promise<Buffer>{
     return new Promise((resolve, reject)=>{
         scrypt(password, salt, 64, { N: 2 ** 17, maxmem: 256 * 1024 * 1024 }, (err, key) => {
@@ -15,6 +19,12 @@ export async function hashPassword(password: string): Promise<string>{
     return `${salt.toString("hex")}:${key.toString("hex")}`;
 }
 
+export async function verifyPasswordDummy() : Promise<boolean>{
+    await verifyPassword(dummyPassword, dummyPasswordHashStored);
+    return false;
+}
+
+
 export async function verifyPassword(password: string, stored: string) : Promise<boolean>{
     const tokens = stored.split(":");
     if(tokens.length!==2){
@@ -25,7 +35,6 @@ export async function verifyPassword(password: string, stored: string) : Promise
         // At least one empty stored data
         return false;
     }
-
     
     const storedSalt = Buffer.from(tokens[0],"hex");
     const storedKey = Buffer.from(tokens[1],"hex");
