@@ -1,16 +1,12 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { z } from "zod";
-import { images, users, sessions } from "./db/schema.js"
+import { images, users } from "./db/schema.js"
 import { db } from "./db/index.js"
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { hashPassword, verifyPassword, verifyPasswordDummy } from "./auth/password.js";
 import cookie from "@fastify/cookie";
 import { createSession, getSessionUser, deleteSession } from "./auth/session.js"
 
-const AuthMeSchema = z.object({
-    id: z.uuid(),
-    // email: z.string().min(8).max(128)
-});
 
 const CredentialSchema = z.object({
     email: z.email().max(128),
@@ -28,16 +24,24 @@ const ImageParamsSchema = z.object({
 })
 
 async function listImages(req: FastifyRequest, reply: FastifyReply) {
-    const imagesOut = await db.select().from(images);
+    
+    const user = await requireUser(req, reply);
+    if(!user) return;
+
+    const imagesOut = await db.select().from(images).where(eq(images.ownerId, user.id));
     reply.send(imagesOut);
 }
 
 async function getImage(req: FastifyRequest<{Params: unknown}>, reply: FastifyReply) {
+    
+    const user = await requireUser(req, reply);
+    if(!user) return;
+
     const result = ImageParamsSchema.safeParse(req.params);
 
     if(result.success){
         const mId = result.data.id;
-        const [image] = await db.select().from(images).where(eq(images.id,mId));
+        const [image] = await db.select().from(images).where(and(eq(images.id,mId),eq(images.ownerId,user.id)));
         if(image){
             reply.send(image);
         }else{
@@ -50,17 +54,25 @@ async function getImage(req: FastifyRequest<{Params: unknown}>, reply: FastifyRe
     }
 }
 
-// async function createImage(req: FastifyRequest<{Body: unknown}>, reply: FastifyReply){
+async function createImage(req: FastifyRequest<{Body: unknown}>, reply: FastifyReply){
     
-//     const result = CreateImageSchema.safeParse(req.body);
+    const user = await requireUser(req, reply);
+    if(!user) return;
 
-//     if(result.success){
-//         const [imageOut] = await db.insert(images).values(result.data).returning();
-//         reply.status(201).send(imageOut);
-//     }else{
-//         reply.status(400).send({ message: "Invalid Request", error: "Bad Request", statusCode: 400 , issues: result.error.issues});
-//     }
-// }
+    const result = CreateImageSchema.safeParse(req.body);
+
+    if(result.success){
+        const [imageOut] = await db.insert(images).values({
+            ownerId: user.id,
+            name: result.data.name,
+            width: result.data.width,
+            height: result.data.height
+        }).returning();
+        reply.status(201).send(imageOut);
+    }else{
+        reply.status(400).send({ message: "Invalid Request", error: "Bad Request", statusCode: 400 , issues: result.error.issues});
+    }
+}
 
 async function register(req: FastifyRequest, reply: FastifyReply) {
     const result = CredentialSchema.safeParse(req.body);
@@ -147,6 +159,18 @@ async function logout(req: FastifyRequest, reply: FastifyReply) {
     reply.status(204).send();
 }
 
+async function requireUser(req: FastifyRequest, reply: FastifyReply){
+    
+    const user = await getSessionUser(req.cookies.sid);
+
+    if(!user){
+        reply.status(401).send({ message: "Unauthorized user", error: "Unauthorized", statusCode: 401});
+        return undefined;
+    }
+
+    return user;
+}
+
 
 
 
@@ -154,7 +178,7 @@ const app = Fastify({ logger: true });
 await app.register(cookie);
 app.get("/images", listImages);
 app.get<{Params: unknown}>("/images/:id", getImage);
-// app.post<{Body: unknown}>("/images", createImage);
+app.post<{Body: unknown}>("/images", createImage);
 app.get("/auth/me", authMe);
 app.post("/auth/register", register);
 app.post("/auth/login", login);

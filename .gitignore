@@ -1,4 +1,4 @@
 node_modules/
 samples/
 .env
-cookies.txt
+cookies*.txt
