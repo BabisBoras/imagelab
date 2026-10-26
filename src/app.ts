@@ -90,6 +90,7 @@ async function register(req: FastifyRequest, reply: FastifyReply) {
         throw err;
     }
 }
+
 async function login(req: FastifyRequest, reply: FastifyReply) {
     const result = CredentialSchema.safeParse(req.body);
     if(!result.success){
@@ -105,6 +106,7 @@ async function login(req: FastifyRequest, reply: FastifyReply) {
         reply.status(401).send({ message: "Unauthorized user", error: "Unauthorized", statusCode: 401});
         return;
     }
+
 
     const mPassword_ver = await verifyPassword(result.data.password, out.passwordHash);
     if(!mPassword_ver){
