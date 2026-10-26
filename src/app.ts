@@ -1,11 +1,16 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { z } from "zod";
-import { images, users } from "./db/schema.js"
+import { images, users, sessions } from "./db/schema.js"
 import { db } from "./db/index.js"
 import { eq } from "drizzle-orm";
 import { hashPassword, verifyPassword, verifyPasswordDummy } from "./auth/password.js";
+import cookie from "@fastify/cookie";
+import { createSession, getSessionUser, deleteSession } from "./auth/session.js"
 
-
+const AuthMeSchema = z.object({
+    id: z.uuid(),
+    // email: z.string().min(8).max(128)
+});
 
 const CredentialSchema = z.object({
     email: z.email().max(128),
@@ -108,15 +113,50 @@ async function login(req: FastifyRequest, reply: FastifyReply) {
         return;
     }
 
+    const token = await createSession(out.id);
+    reply.setCookie("sid", token, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 7 * 24 * 60 * 60 });
+
     reply.status(200).send({ id: out.id, email: out.email});
 }
 
+async function authMe(req: FastifyRequest, reply: FastifyReply) {
+
+    const user = await getSessionUser(req.cookies.sid);
+
+    if(!user){
+        reply.status(401).send({ message: "Unauthorized user", error: "Unauthorized", statusCode: 401});
+        return;
+    }
+
+    reply.status(200).send({id: user.id, email: user?.email});
+}
+
+
+async function logout(req: FastifyRequest, reply: FastifyReply) {
+    
+    if(!req.cookies.sid){
+        reply.status(204).send();
+        return;
+    }
+
+    await deleteSession(req.cookies.sid);
+
+    reply.clearCookie("sid", { path: "/" });
+    reply.status(204).send();
+}
+
+
+
 
 const app = Fastify({ logger: true });
+await app.register(cookie);
 app.get("/images", listImages);
 app.get<{Params: unknown}>("/images/:id", getImage);
 // app.post<{Body: unknown}>("/images", createImage);
+app.get("/auth/me", authMe);
 app.post("/auth/register", register);
 app.post("/auth/login", login);
+app.post("/auth/logout", logout);
+
 
 await app.listen({port: 3000});
