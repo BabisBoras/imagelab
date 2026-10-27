@@ -7,16 +7,20 @@ import { hashPassword, verifyPassword, verifyPasswordDummy } from "./auth/passwo
 import cookie from "@fastify/cookie";
 import { createSession, getSessionUser, deleteSession } from "./auth/session.js"
 
+import multipart from "@fastify/multipart";
+import { pipeline } from "node:stream/promises";
+import { createWriteStream } from "node:fs";
+import { mkdir, rename, rm, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import path from "node:path";
+import { readHeader, probeImage } from "./images/probe.js";
+
+const STORAGE_DIR = path.resolve(process.env.STORAGE_DIR ?? "storage");
+const MAX_PIXELS = 50000000; // 50MP ~200MB
 
 const CredentialSchema = z.object({
     email: z.email().max(128),
     password: z.string().min(8).max(128)
-});
-
-const CreateImageSchema = z.object({
-    name: z.string().min(1).max(255),
-    width: z.number().int().positive().max(20000),
-    height: z.number().int().positive().max(20000),
 });
 
 const ImageParamsSchema = z.object({
@@ -51,26 +55,6 @@ async function getImage(req: FastifyRequest<{Params: unknown}>, reply: FastifyRe
         // 404 vs 400: has small advantage (not sending information about id format)
         reply.status(404).send({ message: "Image not found", error: "Not found", statusCode: 404 });
         // reply.status(400).send({ message: "Invalid Request", error: "Bad Request", statusCode: 400 , issues: result.error.issues});
-    }
-}
-
-async function createImage(req: FastifyRequest<{Body: unknown}>, reply: FastifyReply){
-    
-    const user = await requireUser(req, reply);
-    if(!user) return;
-
-    const result = CreateImageSchema.safeParse(req.body);
-
-    if(result.success){
-        const [imageOut] = await db.insert(images).values({
-            ownerId: user.id,
-            name: result.data.name,
-            width: result.data.width,
-            height: result.data.height
-        }).returning();
-        reply.status(201).send(imageOut);
-    }else{
-        reply.status(400).send({ message: "Invalid Request", error: "Bad Request", statusCode: 400 , issues: result.error.issues});
     }
 }
 
@@ -171,18 +155,108 @@ async function requireUser(req: FastifyRequest, reply: FastifyReply){
     return user;
 }
 
+async function uploadImage(req: FastifyRequest, reply: FastifyReply){
+    
+    const user = await requireUser(req, reply);
+    if(!user) return;
+
+    if (!req.isMultipart()){
+        return reply.code(415).send({
+            error: "Unsupported Media Type",
+            message: "Only PNG and JPEG images are supported.",
+        });
+    }
+    const data = await req.file(); // { file: stream, filename, mimetype }
+
+    if(!data){
+        reply.status(400).send({ message: "Invalid Request", error: "Bad Request", statusCode: 400 });
+        return;
+    }
+
+    const id = randomUUID();
+
+    //const tmpName = STORAGE_DIR+"/"+id+".tmp";
+    const tmpName = path.join(STORAGE_DIR, `${id}.tmp`);
+
+
+    //const fh = await open(tmpName, "w");
+    
+    try{
+        await pipeline(data.file , createWriteStream(tmpName))
+
+        if (data.file.truncated){
+            return reply.code(413).send({
+                error: "Payload Too Large",
+                message: "Image exceeds the maximum allowed size.",
+            });
+        }
+
+        const probe = probeImage(await readHeader(tmpName))
+
+        if(!probe){
+            // data error
+            return reply.code(415).send({
+                error: "Unsupported Media Type",
+                message: "Only PNG and JPEG images are supported.",
+            });
+        }
+
+        if( probe.height<=0 || probe.height>20000 || probe.width<=0 || probe.width>20000 || probe.width*probe.height>MAX_PIXELS ){
+            // reply.status(422).send({ message: "Invalid range or format", error: "Out of range", statusCode: 422 });
+            return reply.code(422).send({
+                message: "Invalid image dimensions.",
+                error: "Unprocessable Content",
+                statusCode: 422 
+            });
+        }
+
+
+        const size = (await stat(tmpName)).size;
+
+        //const finalName = STORAGE_DIR+"/"+id+probe.format;
+        const finalName = path.join(STORAGE_DIR, `${id}.${probe.format}`)
+
+        await rename(tmpName, finalName);
+
+        try {
+            const [imageOut] = await db.insert(images).values({
+                id: id,
+                ownerId: user.id,
+                name: data.filename.slice(0,255) || "no_name",
+                width: probe.width,
+                height: probe.height,
+                format: probe.format,
+                sizeBytes: size,
+            }).returning();
+            reply.status(201).send(imageOut);
+        } catch (err) {
+            await rm(finalName, { force: true });
+            throw err;
+        }
+
+    }finally{
+        await rm(tmpName, { force: true } );
+    }
+
+
+}
+
 
 
 
 const app = Fastify({ logger: true });
 await app.register(cookie);
+await app.register(multipart, { limits: { fileSize: 20 * 1024 * 1024, files: 1 } })
+await mkdir(STORAGE_DIR, { recursive: true })
+
 app.get("/images", listImages);
 app.get<{Params: unknown}>("/images/:id", getImage);
-app.post<{Body: unknown}>("/images", createImage);
 app.get("/auth/me", authMe);
 app.post("/auth/register", register);
 app.post("/auth/login", login);
 app.post("/auth/logout", logout);
+
+app.post("/images", uploadImage);
 
 
 await app.listen({port: 3000});

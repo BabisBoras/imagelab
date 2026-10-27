@@ -1,0 +1,1 @@
+ALTER TABLE "images" ADD CONSTRAINT "images_format" CHECK ("images"."format" IN ('png', 'jpg'));
