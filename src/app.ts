@@ -14,6 +14,7 @@ import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { readHeader, probeImage } from "./images/probe.js";
+import { STATUS_CODES } from "node:http";
 
 const STORAGE_DIR = path.resolve(process.env.STORAGE_DIR ?? "storage");
 const MAX_PIXELS = 50000000; // 50MP ~200MB
@@ -27,6 +28,17 @@ const CredentialSchema = z.object({
 const ImageParamsSchema = z.object({
     id: z.uuid(),
 })
+
+function statusOf(err: unknown): number {
+    if (
+        typeof err === "object" && err !== null &&   // είναι object (το typeof null είναι κι αυτό "object")
+        "statusCode" in err &&                       // έχει πεδίο statusCode
+        typeof err.statusCode === "number"           // και είναι αριθμός
+    ) {
+        return err.statusCode;
+    }
+    return 500;                                      // οτιδήποτε άλλο: δικό μας σφάλμα
+}
 
 async function listImages(req: FastifyRequest, reply: FastifyReply) {
     
@@ -244,6 +256,13 @@ async function getImageFile(req: FastifyRequest, reply: FastifyReply) {
         const [image] = await db.select().from(images).where(and(eq(images.id,mId),eq(images.ownerId,user.id)));
         if(image){
             const imageName = path.join(STORAGE_DIR, `${image.id}.${image.format}`)
+
+            const imStat = await stat(imageName);
+            
+            if (imStat.size !== image.sizeBytes) {
+                throw new Error(`Size mismatch for image ${image.id}: db=${image.sizeBytes} disk=${imStat.size}`);
+            }
+
             return reply
             .type(MIME[image.format])
             .header("Content-Length",image.sizeBytes)
@@ -279,5 +298,27 @@ app.post("/images", uploadImage);
 
 app.get("/images/:id/file", getImageFile);
 
+app.setErrorHandler((err, req, reply) => {
+    // status ← err.statusCode ?? 500
+    reply.header("cache-control", "no-store")
+    const status = statusOf(err);
+
+    if(status<500){
+        // αν status < 500  → απάντησε status με το err.message
+        const msg = err instanceof Error ? err.message : "Bad Request";
+        return reply.status(status).send({ statusCode: status, error: STATUS_CODES[status], message: msg });
+            
+    }
+        // αλλιώς → req.log.error(err), απάντησε 500 με γενικό μήνυμα + requestId
+        req.log.error(err);        
+        // return reply.status(500).send({ message: "An error occured in server", error: "Unkown error", statusCode: 500});
+        return reply.status(500).send({
+            statusCode: 500,
+            error: "Internal Server Error",
+            message: "Something went wrong.",
+            requestId: req.id,
+        });        
+    
+});
 
 await app.listen({port: 3000});
