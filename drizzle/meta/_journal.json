@@ -43,6 +43,13 @@
       "when": 1793112294259,
       "tag": "0005_worried_skullbuster",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794314533582,
+      "tag": "0006_last_tarot",
+      "breakpoints": true
     }
   ]
 }
