@@ -15,8 +15,9 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { readHeader, probeImage } from "./images/probe.js";
 import { STATUS_CODES } from "node:http";
+import { config } from "./config.js"
 
-const STORAGE_DIR = path.resolve(process.env.STORAGE_DIR ?? "storage");
+const STORAGE_DIR = path.resolve(config.STORAGE_DIR);
 const MAX_PIXELS = 50000000; // 50MP ~200MB
 const MIME: Record<"png" | "jpg", string> = { png: "image/png", jpg: "image/jpeg" };
 

@@ -5,3 +5,5 @@ cookies*.txt
 storage/
 out.jpg
 out/
+worker/.venv/
+__pycache__/
